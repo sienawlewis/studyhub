@@ -1,63 +1,144 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Study Buddy</title>
+  <title>Study Buddy - Notes Dashboard</title>
   <style>
-    body { font-family: Arial; padding: 20px; }
-    h2 { margin-bottom: 10px; }
-    button { margin-top: 10px; padding: 8px 12px; font-size: 16px; }
-    pre { background: #f3f3f3; padding: 10px; margin-top: 20px; white-space: pre-wrap; }
+    body { font-family: Arial; display: flex; margin: 0; height: 100vh; }
+    #sidebar { width: 250px; background: #f0f0f0; padding: 20px; overflow-y: auto; }
+    #main { flex: 1; padding: 20px; overflow-y: auto; }
+    h2 { margin-top: 0; }
+    select, input, button { margin: 5px 0; width: 100%; padding: 5px; }
+    .note { border: 1px solid #ccc; margin: 5px 0; padding: 5px; }
+    .subject { font-weight: bold; margin-top: 10px; }
+    .unit { font-style: italic; margin-left: 10px; }
   </style>
 </head>
 <body>
-  <h2>📸 Take a Picture of Your Notes</h2>
 
-  <input type="file" id="photo" accept="image/*" capture="environment">
-  <br>
-  <button onclick="send()">Help Me Study</button>
+  <!-- Sidebar: Subjects / Units -->
+  <div id="sidebar">
+    <h2>Subjects & Units</h2>
+    <div id="subjectList"></div>
+    <hr>
+    <h2>Add Note</h2>
+    <label>Subject:</label>
+    <input type="text" id="noteSubject" placeholder="e.g. Math">
+    <label>Unit:</label>
+    <input type="text" id="noteUnit" placeholder="e.g. Algebra">
+    <input type="file" id="notePhoto" accept="image/*" capture="environment">
+    <button onclick="uploadNote()">Upload Note</button>
+  </div>
 
-  <pre id="output"></pre>
+  <!-- Main area: Notes dashboard -->
+  <div id="main">
+    <h2>Notes Library</h2>
+    <div id="notesDisplay">No notes yet.</div>
+  </div>
 
-  <script>
-    async function send() {
-      const file = document.getElementById("photo").files[0];
-      if (!file) {
-        alert("Take a picture first!");
-        return;
-      }
+<script>
+const WORKER_URL = "study-helper.sienawlewis.workers.dev"; // Replace with your Cloudflare Worker URL
 
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const base64 = reader.result.split(",")[1];
+// Load notes from LocalStorage
+let notes = JSON.parse(localStorage.getItem("notes") || "[]");
 
-        try {
-          const response = await fetch("study-helper.sienawlewis.workers.dev", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              model: "gpt-4.1-mini",
-              input: [
-                {
-                  role: "user",
-                  content: [
-                    { type: "input_text", text: "Read these notes and explain them simply." },
-                    { type: "input_image", image_base64: base64 }
-                  ]
-                }
-              ]
-            })
-          });
+// Display notes grouped by subject -> unit
+function renderNotes() {
+  const container = document.getElementById("notesDisplay");
+  container.innerHTML = "";
+  if(notes.length === 0) {
+    container.textContent = "No notes yet.";
+    return;
+  }
 
-          const data = await response.json();
-          document.getElementById("output").textContent = data.output_text || "No response from AI.";
+  const grouped = {};
+  notes.forEach(n => {
+    if(!grouped[n.subject]) grouped[n.subject] = {};
+    if(!grouped[n.subject][n.unit]) grouped[n.subject][n.unit] = [];
+    grouped[n.subject][n.unit].push(n);
+  });
 
-        } catch (err) {
-          document.getElementById("output").textContent = "Error: " + err.message;
-        }
-      };
+  for(const subject in grouped) {
+    const subjDiv = document.createElement("div");
+    subjDiv.className = "subject";
+    subjDiv.textContent = subject;
+    container.appendChild(subjDiv);
 
-      reader.readAsDataURL(file);
+    for(const unit in grouped[subject]) {
+      const unitDiv = document.createElement("div");
+      unitDiv.className = "unit";
+      unitDiv.textContent = unit;
+      container.appendChild(unitDiv);
+
+      grouped[subject][unit].forEach(note => {
+        const noteDiv = document.createElement("div");
+        noteDiv.className = "note";
+        noteDiv.innerHTML = `<strong>AI Text:</strong><br>${note.text}<br>
+                             <img src="${note.photo}" style="max-width:100%">`;
+        container.appendChild(noteDiv);
+      });
     }
-  </script>
+  }
+}
+
+// Upload note photo to Worker AI
+function uploadNote() {
+  const subject = document.getElementById("noteSubject").value.trim();
+  const unit = document.getElementById("noteUnit").value.trim();
+  const fileInput = document.getElementById("notePhoto");
+
+  if(!subject || !unit || !fileInput.files[0]) {
+    alert("Please fill subject, unit, and select a photo.");
+    return;
+  }
+
+  const file = fileInput.files[0];
+  const reader = new FileReader();
+  reader.onload = async () => {
+    const base64 = reader.result.split(",")[1];
+
+    try {
+      const response = await fetch(WORKER_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "gpt-4.1-mini",
+          input: [
+            {
+              role: "user",
+              content: [
+                { type: "input_text", text: "Read these notes and summarize for study." },
+                { type: "input_image", image_base64: base64 }
+              ]
+            }
+          ]
+        })
+      });
+
+      const data = await response.json();
+      const aiText = data.output_text || "No response from AI.";
+
+      // Save note locally
+      notes.push({ subject, unit, photo: reader.result, text: aiText });
+      localStorage.setItem("notes", JSON.stringify(notes));
+      renderNotes();
+
+      // Clear inputs
+      fileInput.value = "";
+      document.getElementById("noteSubject").value = "";
+      document.getElementById("noteUnit").value = "";
+
+    } catch(err) {
+      alert("Error uploading note: " + err.message);
+    }
+  };
+
+  reader.readAsDataURL(file);
+}
+
+// Initial render
+renderNotes();
+</script>
+
 </body>
 </html>
+
