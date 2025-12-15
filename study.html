@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Study Buddy</title>
+</head>
+<body>
+  <h2>📸 Take a Picture of Your Notes</h2>
+
+  <input type="file" id="photo" accept="image/*" capture="environment">
+  <br><br>
+  <button onclick="send()">Help Me Study</button>
+
+  <pre id="output"></pre>
+
+  <script>
+    async function send() {
+      const file = document.getElementById("photo").files[0];
+      if (!file) {
+        alert("Take a picture first!");
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const base64 = reader.result.split(",")[1];
+
+        const response = await fetch("https://api.openai.com/v1/responses", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer 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"
+          },
+          body: JSON.stringify({
+            model: "gpt-4.1-mini",
+            input: [
+              {
+                role: "user",
+                content: [
+                  { "type": "input_text", "text": "Read these notes and explain them simply." },
+                  { "type": "input_image", "image_base64": base64 }
+                ]
+              }
+            ]
+          })
+        });
+
+        const data = await response.json();
+        document.getElementById("output").textContent =
+          data.output_text || "Something went wrong";
+      };
+
+      reader.readAsDataURL(file);
+    }
+  </script>
+</body>
+</html>
